@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Golf Tournament Manager</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f4f8; /* Light gray background */
+        }
+        .player-item {
+            cursor: grab;
+            user-select: none; /* Prevent text selection during drag */
+            transition: background-color 0.2s ease, transform 0.1s ease;
+        }
+        .player-item:active {
+            cursor: grabbing;
+        }
+        .player-item:hover {
+            background-color: #e0e7ff; /* Lighter blue on hover */
+        }
+        .player-item.dragging {
+            opacity: 0.4; /* Make dragged item slightly transparent */
+        }
+        .drop-target {
+            border: 2px dashed #cbd5e1; /* Gray dashed border for drop areas */
+            background-color: #f8fafc; /* Lighter background for empty slots */
+            transition: border-color 0.2s ease, background-color 0.2s ease;
+        }
+        .drop-target.drag-over {
+            border-color: #6366f1; /* Indigo border on drag over */
+            background-color: #e0e7ff; /* Light blue on drag over */
+        }
+        /* Custom scrollbar for player lists */
+        .player-list-scroll::-webkit-scrollbar {
+            width: 8px;
+        }
+        .player-list-scroll::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+        .player-list-scroll::-webkit-scrollbar-thumb {
+            background: #a78bfa;
+            border-radius: 10px;
+        }
+        .player-list-scroll::-webkit-scrollbar-thumb:hover {
+            background: #8b5cf6;
+        }
+    </style>
+</head>
+<body class="p-6">
+    <div class="container mx-auto bg-white shadow-xl rounded-2xl p-8 max-w-full lg:max-w-7xl flex flex-col lg:flex-row gap-8">
+
+        <!-- Team Section (Left) -->
+        <div class="w-full lg:w-1/3 p-6 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl shadow-lg flex flex-col items-center">
+            <h2 class="text-3xl font-bold text-white mb-6 tracking-wide">Golf Teams</h2>
+
+            <div class="flex flex-col md:flex-row gap-6 w-full">
+                <!-- Red Team -->
+                <div class="bg-red-500 rounded-xl p-5 flex-1 shadow-md">
+                    <h3 class="text-xl font-semibold text-white mb-4 text-center">Red Team</h3>
+                    <!-- Textarea for Red Team input -->
+                    <textarea id="red-team-input" class="bg-white rounded-lg p-3 mb-3 w-full h-32 overflow-y-auto text-gray-800 focus:outline-none focus:ring-2 focus:ring-red-300 transition duration-200" placeholder="Paste Red Team names here, one per line."></textarea>
+                    <button onclick="loadPlayersFromTextarea('red')" class="w-full bg-red-700 hover:bg-red-800 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 mb-4">Load Red Team Players</button>
+                    <!-- Display area for Red Team draggable players -->
+                    <div id="red-team-player-display" class="bg-white rounded-lg p-4 h-64 overflow-y-auto player-list-scroll text-gray-800 border border-red-200">
+                        <!-- Red Team Players will be rendered here by JS -->
+                    </div>
+                </div>
+
+                <!-- Blue Team -->
+                <div class="bg-blue-500 rounded-xl p-5 flex-1 shadow-md">
+                    <h3 class="text-xl font-semibold text-white mb-4 text-center">Blue Team</h3>
+                    <!-- Textarea for Blue Team input -->
+                    <textarea id="blue-team-input" class="bg-white rounded-lg p-3 mb-3 w-full h-32 overflow-y-auto text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300 transition duration-200" placeholder="Paste Blue Team names here, one per line."></textarea>
+                    <button onclick="loadPlayersFromTextarea('blue')" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded-lg shadow-md transition duration-300 mb-4">Load Blue Team Players</button>
+                    <!-- Display area for Blue Team draggable players -->
+                    <div id="blue-team-player-display" class="bg-white rounded-lg p-4 h-64 overflow-y-auto player-list-scroll text-gray-800 border border-blue-200">
+                        <!-- Blue Team Players will be rendered here by JS -->
+                    </div>
+                </div>
+            </div>
+            <p class="mt-4 text-white text-sm text-center">Enter names in the text boxes and click 'Load Players'.</p>
+        </div>
+
+        <!-- Match Section (Right) -->
+        <div class="w-full lg:w-2/3 p-6 bg-gradient-to-br from-green-500 to-teal-600 rounded-xl shadow-lg">
+            <h2 class="text-3xl font-bold text-white mb-6 text-center tracking-wide">Match Schedule</h2>
+
+            <div id="matches-container" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Round 1 to Round 8 will be dynamically generated by JS -->
+                <!-- Each round will contain left-side and right-side player slots -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global data storage for players and matches
+        let allPlayers = []; // { id: '...', name: '...', originalTeam: 'red'/'blue', currentParentId: 'red-team-player-display' }
+        let currentDraggedPlayerId = null;
+
+        /**
+         * Loads players from the specified team's textarea, processes them,
+         * and updates the global allPlayers array.
+         * @param {string} teamColor - 'red' or 'blue'
+         */
+        function loadPlayersFromTextarea(teamColor) {
+            console.log(`loadPlayersFromTextarea called for ${teamColor}`);
+            const inputTextAreaId = `${teamColor}-team-input`;
+            const displayContainerId = `${teamColor}-team-player-display`;
+            const textArea = document.getElementById(inputTextAreaId);
+            if (!textArea) {
+                console.error(`Text area with ID ${inputTextAreaId} not found.`);
+                return;
+            }
+
+            const newNamesFromTextarea = textArea.value.split('\n')
+                                .map(name => name.trim())
+                                .filter(name => name !== '');
+            const newNamesSet = new Set(newNamesFromTextarea); // For efficient lookup
+
+            let nextAllPlayers = [];
+
+            // 1. Add players from other teams (unchanged)
+            nextAllPlayers.push(...allPlayers.filter(p => p.originalTeam !== teamColor));
+
+            // 2. Identify players for the current team that are already in match slots
+            // These players should persist in their match slots even if their name is removed from the textarea
+            const existingPlayersInMatchSlotsForThisTeam = allPlayers.filter(p =>
+                p.originalTeam === teamColor && p.currentParentId.startsWith('round-')
+            );
+
+            // 3. Process new names from textarea
+            newNamesFromTextarea.forEach((name, index) => {
+                // Find if this player already exists globally (could be in a match slot or old team display)
+                let existingPlayer = allPlayers.find(p => p.name === name && p.originalTeam === teamColor);
+
+                if (existingPlayer) {
+                    // If player exists, update its currentParentId to the team display.
+                    // This brings it back to the team list if its name is re-entered or kept.
+                    existingPlayer.currentParentId = displayContainerId;
+                    // Add to nextAllPlayers, ensuring no duplicates later
+                    if (!nextAllPlayers.some(p => p.id === existingPlayer.id)) {
+                        nextAllPlayers.push(existingPlayer);
+                    }
+                } else {
+                    // New player, create and add to team display
+                    const playerId = `${teamColor}-player-${Date.now()}-${index}`;
+                    nextAllPlayers.push({
+                        id: playerId,
+                        name: name,
+                        originalTeam: teamColor,
+                        currentParentId: displayContainerId
+                    });
+                }
+            });
+
+            // 4. Add back players who are currently in match slots AND whose names were *not* in the new textarea input.
+            // This ensures players stay in their assigned matches even if their name is no longer in the input box.
+            existingPlayersInMatchSlotsForThisTeam.forEach(p => {
+                if (!newNamesSet.has(p.name)) { // If their name is NOT in the new textarea list
+                    // Ensure this player wasn't already added (e.g., if their name *was* in the new textarea)
+                    if (!nextAllPlayers.some(np => np.id === p.id)) {
+                        nextAllPlayers.push(p);
+                    }
+                }
+            });
+
+            // Remove any remaining duplicates by ID (a final safeguard)
+            const uniquePlayerIds = new Set();
+            allPlayers = nextAllPlayers.filter(player => {
+                if (uniquePlayerIds.has(player.id)) {
+                    return false; // Duplicate, do not include
+                }
+                uniquePlayerIds.add(player.id);
+                return true; // Unique, include
+            });
+
+            console.log(`allPlayers after ${teamColor} load:`, allPlayers);
+            renderPlayers(); // Re-render all players based on the updated allPlayers array
+        }
+
+
+        /**
+         * Initializes the textareas with predefined player names and then loads them.
+         * Includes 16 players per team.
+         */
+        function initializePlayersFromDOM() {
+            const initialRedPlayers = [
+                "Paul Hammond", "Brenton Keath", "Phil Naylor", "Robert Mussman",
+                "Albert Ryan", "Hamdi Ugur", "Bob Trump", "Mickey Sweinhart",
+                "Alice Johnson", "Bob Williams", "Charlie Brown", "Diana Prince",
+                "Eve Adams", "Frank Miller", "Grace Kelly", "Harry Potter"
+            ];
+            const initialBluePlayers = [
+                "Randy Lovelace", "Zach Little", "Brendon Bock", "Dom Mezzapelle",
+                "Tom Buchholz", "Tom Parsons", "Troy Seelye", "Brian Trump",
+                "Ivy Green", "Jack Black", "Karen White", "Leo King",
+                "Mia Queen", "Nick Knight", "Olivia Pond", "Peter Pan"
+            ];
+
+            document.getElementById('red-team-input').value = initialRedPlayers.join('\n');
+            document.getElementById('blue-team-input').value = initialBluePlayers.join('\n');
+
+            // Load the initial players into the draggable lists
+            loadPlayersFromTextarea('red');
+            loadPlayersFromTextarea('blue');
+        }
+
+        /**
+         * Renders all player elements onto the DOM based on the allPlayers array.
+         * It clears existing player elements and recreates them.
+         */
+        function renderPlayers() {
+            // Clear existing player items from both team display containers
+            document.getElementById('red-team-player-display').innerHTML = '';
+            document.getElementById('blue-team-player-display').innerHTML = '';
+
+            // Clear existing player items from all match slots
+            document.querySelectorAll('.player-slot').forEach(slot => slot.innerHTML = '');
+
+            // Iterate through all players and append them to their designated parent element
+            allPlayers.forEach(player => {
+                const playerElement = document.createElement('div');
+                playerElement.id = player.id; // Unique ID for the player's DOM element
+                playerElement.classList.add(
+                    'player-item', 'px-3', 'py-2', 'my-1', 'rounded-md', 'font-medium', 'border', 'shadow-sm', 'cursor-grab'
+                );
+                // Apply team-specific colors for visual distinction
+                if (player.originalTeam === 'red') {
+                    playerElement.classList.add('bg-red-100', 'text-red-800', 'border-red-200');
+                } else if (player.originalTeam === 'blue') {
+                    playerElement.classList.add('bg-blue-100', 'text-blue-800', 'border-blue-200');
+                }
+                playerElement.setAttribute('draggable', 'true'); // Make the element draggable
+                playerElement.setAttribute('data-player-id', player.id); // Store player ID for drag events
+                playerElement.setAttribute('data-original-team', player.originalTeam); // Store original team
+                playerElement.textContent = player.name; // Display player's name
+
+                // Add drag event listeners to each player item
+                playerElement.addEventListener('dragstart', handleDragStart);
+                playerElement.addEventListener('dragend', handleDragEnd);
+
+                const parentElement = document.getElementById(player.currentParentId);
+                if (parentElement) {
+                    parentElement.appendChild(playerElement);
+                } else {
+                    // Log an error if a player's parent container is not found (shouldn't happen with correct logic)
+                    console.error(`Parent element with ID ${player.currentParentId} not found for player ${player.name}`);
+                }
+            });
+        }
+
+        // --- Drag and Drop Functions ---
+
+        /**
+         * Handles the start of a drag operation.
+         * Stores the ID of the dragged player and adds a 'dragging' class for visual feedback.
+         * @param {Event} event - The dragstart event.
+         */
+        function handleDragStart(event) {
+            currentDraggedPlayerId = event.target.dataset.playerId;
+            event.dataTransfer.setData('text/plain', currentDraggedPlayerId); // Set data to be transferred
+            event.dataTransfer.effectAllowed = 'move'; // Define the allowed drag effect
+            event.target.classList.add('dragging'); // Add class for visual styling during drag
+        }
+
+        /**
+         * Handles the end of a drag operation.
+         * Removes the 'dragging' class and resets the dragged player ID.
+         * @param {Event} event - The dragend event.
+         */
+        function handleDragEnd(event) {
+            event.target.classList.remove('dragging');
+            currentDraggedPlayerId = null;
+        }
+
+        /**
+         * Prevents default behavior and allows dropping.
+         * Adds visual feedback to valid drop targets when a draggable item is over them.
+         * @param {Event} event - The dragover event.
+         */
+        function handleDragOver(event) {
+            event.preventDefault(); // Necessary to allow dropping
+            event.dataTransfer.dropEffect = 'move';
+
+            const target = event.currentTarget;
+            const draggedPlayer = allPlayers.find(p => p.id === currentDraggedPlayerId);
+
+            if (!draggedPlayer) {
+                event.dataTransfer.dropEffect = 'none'; // No dragged player, no drop
+                return;
+            }
+
+            // Logic for dropping into a player-slot (match side)
+            if (target.classList.contains('player-slot')) {
+                // Only allow drop if the slot is empty
+                if (target.querySelector('.player-item')) {
+                    event.dataTransfer.dropEffect = 'none';
+                    return;
+                }
+
+                const dropSide = target.dataset.side; // Get the 'left' or 'right' side of the slot
+
+                // Check if the player's original team matches the drop target side
+                if ((draggedPlayer.originalTeam === 'red' && dropSide === 'left') ||
+                    (draggedPlayer.originalTeam === 'blue' && dropSide === 'right')) {
+                    target.classList.add('drag-over');
+                } else {
+                    // If it's an invalid drop, set dropEffect to 'none' and don't add 'drag-over'
+                    event.dataTransfer.dropEffect = 'none';
+                }
+            }
+            // Logic for dropping back into a team display area
+            else if (target.id === 'red-team-player-display' || target.id === 'blue-team-player-display') {
+                const originalTeamId = `${draggedPlayer.originalTeam}-team-player-display`;
+                if (target.id === originalTeamId) {
+                    target.classList.add('drag-over'); // Allow dropping back into the correct team's display
+                } else {
+                    event.dataTransfer.dropEffect = 'none'; // Prevent dropping into the wrong team's display
+                }
+            } else {
+                // If it's not a valid drop target (e.g., occupied slot, non-drop area), prevent drop
+                event.dataTransfer.dropEffect = 'none';
+            }
+        }
+
+        /**
+         * Removes visual feedback when a draggable item leaves a drop target.
+         * @param {Event} event - The dragleave event.
+         */
+        function handleDragLeave(event) {
+            event.currentTarget.classList.remove('drag-over');
+        }
+
+        /**
+         * Handles the drop operation.
+         * Moves the dragged player to the new drop target and updates its parent ID in allPlayers.
+         * @param {Event} event - The drop event.
+         */
+        function handleDrop(event) {
+            event.preventDefault();
+            event.currentTarget.classList.remove('drag-over');
+
+            const playerId = event.dataTransfer.getData('text/plain');
+            const draggedElement = document.getElementById(playerId);
+            const dropTarget = event.currentTarget;
+
+            if (!draggedElement) {
+                console.error('Dragged element not found.');
+                return;
+            }
+
+            const playerIndex = allPlayers.findIndex(p => p.id === playerId);
+            if (playerIndex === -1) {
+                console.error('Player not found in allPlayers array.');
+                return;
+            }
+            const player = allPlayers[playerIndex];
+
+            // --- Logic for dropping into a match slot ---
+            if (dropTarget.classList.contains('player-slot')) {
+                // First, check if the slot is already occupied
+                if (dropTarget.querySelector('.player-item')) {
+                    console.warn('Slot already occupied.');
+                    return;
+                }
+
+                // Second, check for valid team/side combination
+                const dropSide = dropTarget.dataset.side;
+                if ((player.originalTeam === 'red' && dropSide === 'right') ||
+                    (player.originalTeam === 'blue' && dropSide === 'left')) {
+                    console.warn(`Invalid drop: ${player.name} (${player.originalTeam}) cannot be dropped on ${dropSide} side.`);
+                    return; // Exit if invalid drop
+                }
+
+                // If valid and not occupied, proceed with moving the player
+                const oldParentId = player.currentParentId;
+                const oldParent = document.getElementById(oldParentId);
+
+                if (oldParent && oldParent.contains(draggedElement)) {
+                    oldParent.removeChild(draggedElement);
+                }
+
+                dropTarget.appendChild(draggedElement);
+                player.currentParentId = dropTarget.id;
+            }
+            // --- Logic for dropping back into a team display area ---
+            else if (dropTarget.id === 'red-team-player-display' || dropTarget.id === 'blue-team-player-display') {
+                const originalTeamId = `${player.originalTeam}-team-player-display`;
+
+                // Only allow dropping back into the player's original team display
+                if (dropTarget.id !== originalTeamId) {
+                    console.warn(`Invalid drop: ${player.name} cannot be dropped into the wrong team's display.`);
+                    return;
+                }
+
+                const originalTeamContainer = document.getElementById(originalTeamId);
+
+                if (originalTeamContainer) {
+                    const oldParent = document.getElementById(player.currentParentId);
+                    if (oldParent && oldParent.contains(draggedElement)) {
+                        oldParent.removeChild(draggedElement);
+                    }
+                    originalTeamContainer.appendChild(draggedElement);
+                    player.currentParentId = originalTeamId;
+                } else {
+                    console.error('Original team display container not found for player:', player.name);
+                }
+            } else {
+                console.warn('Invalid drop target.');
+            }
+        }
+
+        // --- DOM Generation Functions ---
+
+        /**
+         * Dynamically generates the match rounds (Round 1 to Round 8)
+         * and their respective player slots, now with 'left' and 'right' sides.
+         */
+        function generateMatchRounds() {
+            const matchesContainer = document.getElementById('matches-container');
+            if (!matchesContainer) return;
+
+            matchesContainer.innerHTML = ''; // Clear any existing content
+
+            for (let i = 1; i <= 8; i++) {
+                const roundDiv = document.createElement('div');
+                roundDiv.classList.add('bg-white', 'rounded-xl', 'p-5', 'shadow-md');
+                roundDiv.innerHTML = `<h4 class="text-xl font-semibold text-gray-800 mb-4 text-center">Round ${i}</h4>`;
+
+                const slotsContainer = document.createElement('div');
+                slotsContainer.classList.add('grid', 'grid-cols-2', 'gap-4'); // This grid holds the left and right match sections
+
+                // Left Side of the Match (e.g., for Red Team players)
+                const leftMatchSide = document.createElement('div');
+                leftMatchSide.classList.add('flex', 'flex-col', 'gap-2', 'p-3', 'bg-gray-50', 'rounded-lg', 'border', 'border-gray-200');
+                leftMatchSide.innerHTML = '<p class="text-center text-sm font-semibold text-gray-700 mb-2">Red Team Side</p>'; // Label for clarity
+
+                for (let j = 1; j <= 2; j++) { // Two slots for the left side
+                    const slotId = `round-${i}-left-slot-${j}`;
+                    const playerSlot = document.createElement('div');
+                    playerSlot.id = slotId;
+                    playerSlot.classList.add('player-slot', 'drop-target', 'bg-gray-100', 'rounded-lg', 'p-3', 'h-16', 'flex', 'items-center', 'justify-center', 'text-gray-500', 'italic', 'text-sm');
+                    playerSlot.textContent = `Red Player ${j}`;
+                    playerSlot.setAttribute('data-side', 'left'); // Custom data attribute for side
+
+                    playerSlot.addEventListener('dragover', handleDragOver);
+                    playerSlot.addEventListener('dragleave', handleDragLeave);
+                    playerSlot.addEventListener('drop', handleDrop);
+                    leftMatchSide.appendChild(playerSlot);
+                }
+                slotsContainer.appendChild(leftMatchSide);
+
+                // Right Side of the Match (e.g., for Blue Team players)
+                const rightMatchSide = document.createElement('div');
+                rightMatchSide.classList.add('flex', 'flex-col', 'gap-2', 'p-3', 'bg-gray-50', 'rounded-lg', 'border', 'border-gray-200');
+                rightMatchSide.innerHTML = '<p class="text-center text-sm font-semibold text-gray-700 mb-2">Blue Team Side</p>'; // Label for clarity
+
+                for (let j = 1; j <= 2; j++) { // Two slots for the right side
+                    const slotId = `round-${i}-right-slot-${j}`;
+                    const playerSlot = document.createElement('div');
+                    playerSlot.id = slotId;
+                    playerSlot.classList.add('player-slot', 'drop-target', 'bg-gray-100', 'rounded-lg', 'p-3', 'h-16', 'flex', 'items-center', 'justify-center', 'text-gray-500', 'italic', 'text-sm');
+                    playerSlot.textContent = `Blue Player ${j}`;
+                    playerSlot.setAttribute('data-side', 'right'); // Custom data attribute for side
+
+                    playerSlot.addEventListener('dragover', handleDragOver);
+                    playerSlot.addEventListener('dragleave', handleDragLeave);
+                    playerSlot.addEventListener('drop', handleDrop);
+                    rightMatchSide.appendChild(playerSlot);
+                }
+                slotsContainer.appendChild(rightMatchSide);
+
+                roundDiv.appendChild(slotsContainer);
+                matchesContainer.appendChild(roundDiv);
+            }
+        }
+
+        // --- Initial setup on page load ---
+        window.onload = function() {
+            // Generate match rounds first
+            generateMatchRounds();
+            // Then initialize players by populating textareas and loading them
+            initializePlayersFromDOM();
+
+            // Add drag and drop listeners to the team display containers
+            const redTeamDisplay = document.getElementById('red-team-player-display');
+            const blueTeamDisplay = document.getElementById('blue-team-player-display');
+
+            redTeamDisplay.addEventListener('dragover', handleDragOver);
+            redTeamDisplay.addEventListener('dragleave', handleDragLeave);
+            redTeamDisplay.addEventListener('drop', handleDrop);
+
+            blueTeamDisplay.addEventListener('dragover', handleDragOver);
+            blueTeamDisplay.addEventListener('dragleave', handleDragLeave);
+            blueTeamDisplay.addEventListener('drop', handleDrop);
+        };
+
+    </script>
+</body>
+</html>
